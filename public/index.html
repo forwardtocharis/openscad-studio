@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>OpenSCAD Studio</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#14161a;--panel:#1d2026;--line:#2c313a;--fg:#e4e6ea;--dim:#8b93a1;--acc:#4da3ff;--ok:#4cc38a;--bad:#ef6b6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;cursor:pointer}header .sp{flex:1}
+button,select,input,textarea{background:#262b33;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--acc)}button.pri{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:600}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+main{flex:1;min-height:0;display:flex}
+#list{padding:18px;overflow:auto;flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;cursor:pointer}
+.card:hover{border-color:var(--acc)}.card h3{margin:0 0 4px}.card p{margin:4px 0;color:var(--dim);min-height:18px}
+.ver{border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px}.ver.sel{border-color:var(--acc)}.ver small{color:var(--dim)}.ver .row{margin-top:6px}.ver button{padding:2px 8px;font-size:12px}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;background:#2d3340;color:var(--dim)}
+.badge.printing{background:#4a3a14;color:#f5c04a}.badge.done{background:#17382b;color:var(--ok)}.badge.designing{background:#16314d;color:var(--acc)}.badge.failed{background:#432020;color:var(--bad)}
+#proj{display:none;flex:1;min-width:0}
+#left{width:380px;display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0}
+#center{flex:1;position:relative;min-width:0}
+#view{position:absolute;inset:0}
+#viewinfo{position:absolute;left:10px;bottom:8px;color:var(--dim);font-size:12px;pointer-events:none;white-space:pre}
+.tabs{display:flex;border-bottom:1px solid var(--line)}.tabs div{padding:8px 14px;cursor:pointer;color:var(--dim)}.tabs div.on{color:var(--fg);border-bottom:2px solid var(--acc)}
+.pane{display:none;flex:1;min-height:0;flex-direction:column;padding:10px;gap:8px}.pane.on{display:flex}
+#log{flex:1;min-height:0;overflow:auto;background:#0e1013;border:1px solid var(--line);border-radius:6px;padding:8px;white-space:pre-wrap;font:12px ui-monospace,Consolas,monospace}
+#log .err{color:#f2a65a}#log .info{color:var(--dim)}#log .user{color:var(--acc)}
+#code{flex:1;font:12px ui-monospace,Consolas,monospace;resize:none;white-space:pre;tab-size:2}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;min-width:380px}
+dialog label{display:block;margin:8px 0 3px;color:var(--dim)}dialog input,dialog textarea,dialog select{width:100%}
+#notes{white-space:pre-wrap;overflow:auto;flex:1;color:var(--dim)}
+</style></head><body>
+<header><h1 onclick="showList()">▲ OpenSCAD Studio</h1><span id="crumb" style="color:var(--dim)"></span><span class="sp"></span>
+<span id="status" style="color:var(--dim);font-size:12px"></span><button class="pri" onclick="newDlg.showModal()">+ New project</button></header>
+<main>
+ <div id="list"><div class="row"><input id="q" placeholder="Search…" oninput="renderList()"><select id="sf" onchange="renderList()"><option value="">All statuses</option></select></div><div class="grid" id="grid"></div></div>
+ <div id="proj">
+  <div id="left">
+   <div class="tabs"><div class="on" data-t="agent">Agent</div><div data-t="code">Code</div><div data-t="history">History</div><div data-t="info">Info</div></div>
+   <div class="pane on" id="p-agent">
+    <div class="row"><select id="backend" onchange="fillModels()"><option value="claude">Claude Code</option><option value="agy">agy</option></select>
+     <select id="model" style="flex:1;min-width:0"></select></div>
+    <div class="row"><button onclick="newConv()" title="Start a fresh agent conversation (previous context is not carried over)">↺ New conversation</button>
+     <label style="color:var(--dim)">Reference:</label><select id="vref" style="flex:1;min-width:0"><option value="">(no earlier version)</option></select></div>
+    <div id="log"></div>
+    <textarea id="prompt" rows="4" placeholder="Describe the model or change… (Ctrl+Enter to send)"></textarea>
+    <div class="row"><button class="pri" id="send" onclick="sendPrompt()">Send</button><button onclick="stopAgent()">Stop</button><span id="running" style="color:var(--dim)"></span></div>
+   </div>
+   <div class="pane" id="p-code"><textarea id="code" spellcheck="false"></textarea>
+    <div class="row"><button class="pri" onclick="saveRender()">Save &amp; render</button><span id="rlog" style="color:var(--dim);font-size:12px"></span></div></div>
+   <div class="pane" id="p-history"><div class="row" style="color:var(--dim);font-size:12px">Every agent run and GUI edit is saved. Click a version to preview it.</div>
+    <div id="vlist" style="flex:1;min-height:0;overflow:auto"></div>
+    <pre id="vcode" style="display:none;max-height:35%;overflow:auto;background:#0e1013;border:1px solid var(--line);border-radius:6px;padding:8px;margin:0;font-size:12px"></pre></div>
+   <div class="pane" id="p-info">
+    <label>Name</label><input id="i-name"><label>Description</label><textarea id="i-desc" rows="3"></textarea>
+    <label>Status</label><select id="i-status"><option>idea</option><option>designing</option><option>printing</option><option>done</option><option>failed</option></select>
+    <label>Tags (comma separated)</label><input id="i-tags">
+    <div class="row" style="margin-top:8px"><button class="pri" onclick="saveInfo()">Save</button><button class="danger" onclick="delProject()">Delete project</button></div>
+    <label>NOTES.md</label><div id="notes"></div></div>
+  </div>
+  <div id="center"><div id="view"></div><div id="vbanner" style="display:none;position:absolute;left:10px;top:10px;background:#4a3a14;color:#f5c04a;padding:4px 10px;border-radius:6px;cursor:pointer" onclick="backToCurrent()"></div><div id="viewinfo"></div>
+   <div style="position:absolute;right:10px;top:10px" class="row"><button onclick="V.fit()">Fit</button><button onclick="V.toggleWire()">Wire</button><a id="dl" href="#" download><button>Download STL</button></a></div></div>
+ </div>
+</main>
+<dialog id="newDlg"><form method="dialog" onsubmit="createProject(event)"><h3 style="margin-top:0">New project</h3>
+ <label>Name</label><input id="n-name" required><label>What do you want to make? (optional - sent to the agent)</label><textarea id="n-desc" rows="3"></textarea>
+ <div class="row" style="margin-top:12px"><button class="pri">Create</button><button type="button" onclick="newDlg.close()">Cancel</button></div></form></dialog>
+
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {STLLoader} from 'three/addons/loaders/STLLoader.js';
+const $=id=>document.getElementById(id);
+let cfg={claudeModels:[],agyModels:[]},projects=[],cur=null,es=null;
+const api=async(p,o={})=>{const r=await fetch('/api/'+p,{...o,headers:{'Content-Type':'application/json'},body:o.body&&JSON.stringify(o.body)});
+  const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}if(!r.ok)throw new Error(j.error||t);return j};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---- viewer ----
+const V=(()=>{const el=$('view');const scene=new THREE.Scene();scene.background=new THREE.Color(0x14161a);
+ const cam=new THREE.PerspectiveCamera(45,1,0.1,5000);cam.up.set(0,0,1);
+ const rend=new THREE.WebGLRenderer({antialias:true});el.appendChild(rend.domElement);
+ const ctl=new OrbitControls(cam,rend.domElement);ctl.enableDamping=true;
+ scene.add(new THREE.HemisphereLight(0xffffff,0x333344,1.1));const dl=new THREE.DirectionalLight(0xffffff,1.4);dl.position.set(1,-2,3);scene.add(dl);
+ const grid=new THREE.GridHelper(256,25,0x3a4150,0x252a33);grid.rotation.x=Math.PI/2;scene.add(grid);scene.add(new THREE.AxesHelper(30));
+ let mesh=null,wire=false;
+ const size=()=>{const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;rend.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix()};
+ new ResizeObserver(size).observe(el);
+ (function loop(){requestAnimationFrame(loop);ctl.update();rend.render(scene,cam)})();
+ const api={
+  fit(){if(!mesh)return;const b=new THREE.Box3().setFromObject(mesh),c=b.getCenter(new THREE.Vector3()),r=b.getSize(new THREE.Vector3()).length()||50;
+   ctl.target.copy(c);cam.position.set(c.x+r*.9,c.y-r*1.1,c.z+r*.8);cam.near=r/100;cam.far=r*20;cam.updateProjectionMatrix()},
+  toggleWire(){wire=!wire;if(mesh)mesh.material.wireframe=wire},
+  clear(){if(mesh){scene.remove(mesh);mesh=null}$('viewinfo').textContent='No render yet'},
+  load(url,keepCam){new STLLoader().load(url+'?t='+Date.now(),g=>{
+    if(mesh){scene.remove(mesh);mesh.geometry.dispose()}
+    g.computeVertexNormals();mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x6cb4ff,metalness:.1,roughness:.55,wireframe:wire,flatShading:false}));
+    scene.add(mesh);g.computeBoundingBox();const s=g.boundingBox.getSize(new THREE.Vector3());
+    $('viewinfo').textContent=`${s.x.toFixed(1)} × ${s.y.toFixed(1)} × ${s.z.toFixed(1)} mm   (${(g.attributes.position.count/3)|0} tris)`;
+    if(!keepCam)api.fit()},undefined,()=>api.clear())}};
+ return api})();
+window.V=V;
+
+// ---- project list ----
+async function loadList(){projects=await api('projects');
+  const sts=[...new Set(projects.map(p=>p.status))];const sf=$('sf'),v=sf.value;
+  sf.innerHTML='<option value="">All statuses</option>'+sts.map(s=>`<option ${s===v?'selected':''}>${esc(s)}</option>`).join('');renderList()}
+window.renderList=()=>{const q=$('q').value.toLowerCase(),sf=$('sf').value;
+  $('grid').innerHTML=projects.filter(p=>(!sf||p.status===sf)&&(!q||(p.name+p.description+(p.tags||[]).join(' ')).toLowerCase().includes(q)))
+  .map(p=>`<div class="card" onclick="openProject('${p.slug}')"><h3>${esc(p.name)}</h3><span class="badge ${esc(p.status)}">${esc(p.status)}</span>
+  <p>${esc(p.description)}</p><p style="font-size:12px">${esc(p.backend)}${p.model?' · '+esc(p.model):''} · ${new Date(p.updated).toLocaleString()}${p.hasStl?' · STL ✓':''}</p>
+  <p style="font-size:12px">${(p.tags||[]).map(t=>'#'+esc(t)).join(' ')}</p></div>`).join('')||'<p style="color:var(--dim)">No projects yet.</p>'};
+window.showList=()=>{closeStream();cur=null;$('proj').style.display='none';$('list').style.display='block';$('crumb').textContent='';location.hash='';loadList()};
+window.createProject=async e=>{const name=$('n-name').value,desc=$('n-desc').value;
+  const p=await api('projects',{method:'POST',body:{name,description:desc,backend:$('backend').value,model:$('model').value}});
+  $('n-name').value='';$('n-desc').value='';await openProject(p.slug);if(desc)$('prompt').value=`Create this: ${desc}`;};
+
+// ---- project view ----
+window.openProject=async slug=>{cur=await api('projects/'+slug);location.hash=slug;
+  $('list').style.display='none';$('proj').style.display='flex';$('crumb').textContent='/ '+cur.name;
+  $('backend').value=cur.backend||'claude';fillModels(cur.model);$('log').innerHTML='';
+  $('code').value=await api(`projects/${slug}/scad`);fillInfo();
+  $('dl').href=`/api/projects/${slug}/model.stl`;$('dl').download=slug+'.stl';
+  cur.hasStl?V.load(`/api/projects/${slug}/model.stl`):V.clear();
+  (cur.history||[]).slice(-6).forEach(h=>log(`> [${h.backend}${h.model?' '+h.model:''}] ${h.prompt}\n`,'user'));
+  attachStream();viewing=null;$('vbanner').style.display='none';$('vcode').style.display='none';loadVersions()};
+function fillInfo(){$('i-name').value=cur.name;$('i-desc').value=cur.description;$('i-status').value=cur.status;$('i-tags').value=(cur.tags||[]).join(', ');
+  fetch(`/api/projects/${cur.slug}/notes`).then(r=>r.text()).then(t=>$('notes').textContent=t)}
+window.saveInfo=async()=>{cur=await api('projects/'+cur.slug,{method:'PATCH',body:{name:$('i-name').value,description:$('i-desc').value,status:$('i-status').value,tags:$('i-tags').value.split(',').map(s=>s.trim()).filter(Boolean)}});$('crumb').textContent='/ '+cur.name};
+window.delProject=async()=>{if(!confirm(`Delete "${cur.name}" and all its files?`))return;await api('projects/'+cur.slug,{method:'DELETE'});showList()};
+window.fillModels=sel=>{const b=$('backend').value,m=$('model');
+  const list=b==='claude'?cfg.claudeModels.map(x=>({id:x,name:x})):cfg.agyModels;
+  m.innerHTML='<option value="">(default model)</option>'+list.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+  if(typeof sel==='string')m.value=sel};
+document.querySelectorAll('.tabs div').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tabs div').forEach(x=>x.classList.toggle('on',x===t));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+t.dataset.t))});
+window.saveRender=async()=>{$('rlog').textContent='rendering…';await api(`projects/${cur.slug}/scad`,{method:'PUT',body:{code:$('code').value}});
+  const r=await api(`projects/${cur.slug}/render`,{method:'POST'});$('rlog').textContent=r.ok?'render ok':'render failed';
+  if(!r.ok)alert(r.log);else V.load(`/api/projects/${cur.slug}/model.stl`,true);loadVersions()};
+
+// ---- agent ----
+function log(t,cls){const l=$('log'),s=document.createElement('span');s.className=cls||'';s.textContent=t;l.appendChild(s);l.scrollTop=l.scrollHeight}
+function closeStream(){if(es){es.close();es=null}}
+function attachStream(){closeStream();const slug=cur.slug;es=new EventSource(`/api/projects/${slug}/agent/stream`);
+  $('running').textContent='';
+  for(const ev of['out','err','info'])es.addEventListener(ev,e=>{log(JSON.parse(e.data),ev)});
+  es.addEventListener('done',async()=>{closeStream();$('running').textContent='';if(cur&&cur.slug===slug){
+    $('code').value=await api(`projects/${slug}/scad`);V.load(`/api/projects/${slug}/model.stl`);fillInfo();loadVersions()}})}
+window.sendPrompt=async()=>{const prompt=$('prompt').value.trim();if(!prompt)return;
+  try{await api(`projects/${cur.slug}/agent`,{method:'POST',body:{prompt,backend:$('backend').value,model:$('model').value,versionRef:$('vref').value===''?null:+$('vref').value}})}catch(e){return alert(e.message)}
+  log(`> ${prompt}\n`,'user');$('prompt').value='';$('log').innerHTML+='';attachStream()};
+window.stopAgent=()=>api(`projects/${cur.slug}/agent/stop`,{method:'POST'});
+$('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey)sendPrompt()});
+
+
+// ---- versions / conversations ----
+let versions=[],viewing=null;
+async function loadVersions(){if(!cur)return;versions=await api('projects/'+cur.slug+'/versions');
+  const vr=$('vref'),sel=vr.value;vr.innerHTML='<option value="">(no earlier version)</option>'+versions.slice().reverse().map(v=>'<option value="'+v.n+'">v'+String(v.n).padStart(3,'0')+' - '+esc((v.prompt||v.note||v.source).replace(/\s+/g,' ').slice(0,50))+'</option>').join('');vr.value=sel;
+  $('vlist').innerHTML=versions.slice().reverse().map(v=>{const id=String(v.n).padStart(3,'0');
+   return '<div class="ver'+(viewing===v.n?' sel':'')+'"><b>v'+id+'</b> <small>'+new Date(v.time).toLocaleString()+' \u00b7 '+esc(v.source)+(v.backend?' \u00b7 '+esc(v.backend)+(v.model?' '+esc(v.model):''):'')+(v.renderOk===false?' \u00b7 render failed':'')+'</small>'
+   +'<div style="margin-top:4px">'+esc((v.prompt||v.note||'').slice(0,200))+'</div>'
+   +(v.reply?'<details><summary><small>agent reply</small></summary><div style="white-space:pre-wrap;color:var(--dim)">'+esc(v.reply)+'</div></details>':'')
+   +'<div class="row"><button onclick="viewVersion('+v.n+')">Preview</button><button onclick="showCode('+v.n+')">Code</button><button onclick="useRef('+v.n+')">Use as reference</button><button onclick="restoreVersion('+v.n+')">Restore</button></div></div>'}).join('')||'<p style="color:var(--dim)">No versions yet.</p>'}
+window.viewVersion=n=>{viewing=n;const b=$('vbanner');b.style.display='block';b.textContent='Previewing v'+String(n).padStart(3,'0')+' - click to return to current';
+  V.load('/api/projects/'+cur.slug+'/versions/'+n+'/model.stl');loadVersions()};
+window.backToCurrent=()=>{viewing=null;$('vbanner').style.display='none';cur.hasStl?V.load('/api/projects/'+cur.slug+'/model.stl'):V.clear();loadVersions()};
+window.showCode=async n=>{const p=$('vcode');p.style.display='block';p.textContent=await api('projects/'+cur.slug+'/versions/'+n+'/main.scad')};
+window.useRef=n=>{$('vref').value=String(n);document.querySelector('.tabs div[data-t=agent]').click()};
+window.restoreVersion=async n=>{if(!confirm('Restore v'+String(n).padStart(3,'0')+'? Your current state is saved as a version first.'))return;
+  try{await api('projects/'+cur.slug+'/versions/'+n+'/restore',{method:'POST'})}catch(e){return alert(e.message)}
+  backToCurrent();cur=await api('projects/'+cur.slug);$('code').value=await api('projects/'+cur.slug+'/scad');V.load('/api/projects/'+cur.slug+'/model.stl');loadVersions()};
+window.newConv=async()=>{if(!cur)return;await api('projects/'+cur.slug+'/new-conversation',{method:'POST'});log('\n--- new conversation (agent will not remember earlier messages) ---\n','info')};
+async function health(){try{const h=await api('health');const r=h.running;const mine=cur&&r.find(x=>x.slug===cur.slug);
+  $('status').innerHTML='<span style="color:var(--ok)">\u25cf server ok</span> \u00b7 up '+h.uptimeSec+'s \u00b7 '+(h.openscadFound===false?'<span style="color:var(--bad)">OpenSCAD not found</span>':'OpenSCAD \u2713')
+   +(r.length?' \u00b7 <span style="color:#f5c04a">agent working: '+esc(r[0].slug)+' '+r[0].sec+'s ('+esc(r[0].backend)+')</span>':' \u00b7 agents idle');
+  $('running').textContent=mine?'agent running\u2026 '+mine.sec+'s (output appears when it finishes)':''}
+ catch{$('status').innerHTML='<span style="color:var(--bad)">\u25cf server unreachable</span> - restart it (start.bat)'}}
+setInterval(health,2000);health();
+(async()=>{cfg=await api('config');fillModels();
+  await loadList();if(location.hash.length>1)openProject(location.hash.slice(1)).catch(showList)})();
+</script></body></html>
